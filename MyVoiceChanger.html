@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pro Voice Changer</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #0ff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            user-select: none;
+        }
+
+        .main-box {
+            background: #1e1e1e;
+            border: 2px solid #0ff;
+            border-radius: 15px;
+            padding: 30px;
+            width: 400px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.1);
+            text-align: center;
+        }
+
+        h1 { margin: 0 0 20px 0; letter-spacing: 3px; text-transform: uppercase; font-size: 24px; }
+        
+        .controls { display: flex; gap: 10px; margin-bottom: 20px; }
+        
+        .big-btn {
+            flex: 1;
+            padding: 15px;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            text-transform: uppercase;
+        }
+        
+        #btnOn { background: #004400; color: #0f0; border: 1px solid #0f0; }
+        #btnOn:hover { background: #0f0; color: #000; }
+        
+        #btnOff { background: #440000; color: #f00; border: 1px solid #f00; }
+        #btnOff:hover { background: #f00; color: #fff; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .voice-btn {
+            background: #2a2a2a;
+            color: #888;
+            border: 1px solid #444;
+            padding: 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 14px;
+        }
+
+        .voice-btn:hover { background: #333; border-color: #666; color: #fff; }
+        
+        .active {
+            background: #0ff;
+            color: #000;
+            border-color: #0ff;
+            font-weight: bold;
+            box-shadow: 0 0 10px #0ff;
+        }
+        .active:hover { background: #0ff; }
+
+        .status { margin-top: 15px; font-size: 12px; color: #666; }
+        
+        /* Volume Slider */
+        .vol-control { margin: 20px 0; display: flex; align-items: center; justify-content: space-between; }
+        input[type=range] { width: 70%; }
+
+    </style>
+</head>
+<body>
+
+    <div class="main-box">
+        <h1>Voice Deck</h1>
+        
+        <div class="controls">
+            <button id="btnOn" class="big-btn" onclick="startEngine()">Power On</button>
+            <button id="btnOff" class="big-btn" onclick="stopEngine()" disabled>Power Off</button>
+        </div>
+
+        <div class="vol-control">
+            <span>Gain:</span>
+            <input type="range" id="volumeSlider" min="0" max="2" step="0.1" value="1" oninput="updateVolume(this.value)">
+        </div>
+
+        <div class="grid">
+            <button class="voice-btn active" id="v-normal" onclick="setMode('normal')">Normal</button>
+            <button class="voice-btn" id="v-radio" onclick="setMode('radio')">Walkie Talkie</button>
+            <button class="voice-btn" id="v-robot" onclick="setMode('robot')">Robot</button>
+            <button class="voice-btn" id="v-alien" onclick="setMode('alien')">Alien Insect</button>
+            <button class="voice-btn" id="v-deep" onclick="setMode('deep')">Deep/Demon</button>
+            <button class="voice-btn" id="v-echo" onclick="setMode('echo')">Cave Echo</button>
+            <button class="voice-btn" id="v-underwater" onclick="setMode('underwater')">Underwater</button>
+            <button class="voice-btn" id="v-ghost" onclick="setMode('ghost')">Ghost</button>
+        </div>
+
+        <div class="status" id="statusDisplay">System Standby</div>
+    </div>
+
+    <script>
+        let audioCtx, micSource, outputNode;
+        let currentNodes = [];
+        let currentMode = 'normal';
+        let globalVolume = 1;
+
+        async function startEngine() {
+            try {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AC();
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }});
+
+                micSource = audioCtx.createMediaStreamSource(stream);
+                
+                document.getElementById('btnOn').disabled = true;
+                document.getElementById('btnOff').disabled = false;
+                document.getElementById('statusDisplay').innerText = "AUDIO ENGINE RUNNING";
+                document.getElementById('statusDisplay').style.color = "#0f0";
+
+                applyEffect();
+            } catch (e) {
+                alert("Microphone Access Denied or Error: " + e);
+            }
+        }
+
+        function stopEngine() {
+            if(audioCtx) audioCtx.close();
+            if(micSource) micSource.mediaStream.getTracks().forEach(t => t.stop());
+            document.getElementById('btnOn').disabled = false;
+            document.getElementById('btnOff').disabled = true;
+            document.getElementById('statusDisplay').innerText = "System Standby";
+            document.getElementById('statusDisplay').style.color = "#666";
+        }
+
+        function updateVolume(val) {
+            globalVolume = val;
+            if(outputNode) outputNode.gain.value = val;
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.voice-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('v-'+mode).classList.add('active');
+            if(audioCtx && audioCtx.state === 'running') applyEffect();
+        }
+
+        function applyEffect() {
+            // Cleanup
+            currentNodes.forEach(n => n.disconnect());
+            currentNodes = [];
+            
+            // Master Gain
+            outputNode = audioCtx.createGain();
+            outputNode.gain.value = globalVolume;
+            outputNode.connect(audioCtx.destination);
+            
+            let lastNode = micSource;
+
+            if (currentMode === 'radio') {
+                // Bandpass filter for telephone effect
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = "bandpass";
+                filter.frequency.value = 1000;
+                filter.Q.value = 1;
+                
+                const dist = audioCtx.createWaveShaper();
+                dist.curve = makeDistortionCurve(50);
+                
+                lastNode.connect(filter);
+                filter.connect(dist);
+                lastNode = dist;
+                currentNodes.push(filter, dist);
+            }
+            else if (currentMode === 'robot') {
+                const osc = audioCtx.createOscillator();
+                osc.frequency.value = 50;
+                osc.start();
+                
+                const gainOsc = audioCtx.createGain();
+                const gainMic = audioCtx.createGain();
+                
+                // Ring mod setup
+                lastNode.connect(gainMic);
+                osc.connect(gainMic.gain);
+                
+                lastNode = gainMic;
+                currentNodes.push(osc, gainOsc, gainMic);
+            }
+            else if (currentMode === 'alien') {
+                const osc = audioCtx.createOscillator();
+                osc.frequency.value = 10; 
+                osc.type = 'sawtooth';
+                osc.start();
+                
+                const gainMic = audioCtx.createGain();
+                lastNode.connect(gainMic);
+                osc.connect(gainMic.gain);
+                lastNode = gainMic;
+                currentNodes.push(osc, gainMic);
+            }
+            else if (currentMode === 'deep') {
+                // Lowpass + Distortion
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = "lowpass";
+                filter.frequency.value = 600;
+                
+                const dist = audioCtx.createWaveShaper();
+                dist.curve = makeDistortionCurve(400); // Heavy distortion
+                
+                lastNode.connect(dist);
+                dist.connect(filter);
+                lastNode = filter;
+                currentNodes.push(filter, dist);
+            }
+            else if (currentMode === 'echo') {
+                const delay = audioCtx.createDelay();
+                delay.delayTime.value = 0.5;
+                const feedback = audioCtx.createGain();
+                feedback.gain.value = 0.4;
+                
+                lastNode.connect(delay);
+                delay.connect(feedback);
+                feedback.connect(delay);
+                
+                const merger = audioCtx.createChannelMerger(2);
+                lastNode.connect(merger, 0, 0);
+                delay.connect(merger, 0, 0);
+                
+                lastNode = merger;
+                currentNodes.push(delay, feedback, merger);
+            }
+            else if (currentMode === 'underwater') {
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = "lowpass";
+                
+                const lfo = audioCtx.createOscillator();
+                lfo.type = 'sine';
+                lfo.frequency.value = 2; // Speed of swirl
+                
+                const lfoGain = audioCtx.createGain();
+                lfoGain.gain.value = 600; // Depth of swirl
+                
+                lfo.connect(lfoGain);
+                lfoGain.connect(filter.frequency);
+                lfo.start();
+                
+                lastNode.connect(filter);
+                lastNode = filter;
+                currentNodes.push(filter, lfo, lfoGain);
+            }
+            else if (currentMode === 'ghost') {
+                // Multi-tap delay
+                const d1 = audioCtx.createDelay(); d1.delayTime.value = 0.1;
+                const d2 = audioCtx.createDelay(); d2.delayTime.value = 0.3;
+                const d3 = audioCtx.createDelay(); d3.delayTime.value = 0.6;
+                
+                const g = audioCtx.createGain(); g.gain.value = 0.3;
+                
+                lastNode.connect(d1); d1.connect(g);
+                lastNode.connect(d2); d2.connect(g);
+                lastNode.connect(d3); d3.connect(g);
+                lastNode.connect(g);
+                
+                lastNode = g;
+                currentNodes.push(d1, d2, d3, g);
+            }
+
+            // Final connection to speakers
+            lastNode.connect(outputNode);
+            currentNodes.push(outputNode);
+        }
+
+        function makeDistortionCurve(amount) {
+            const k = amount, n_samples = 44100, curve = new Float32Array(n_samples), deg = Math.PI / 180;
+            for (let i = 0; i < n_samples; ++i) {
+                let x = i * 2 / n_samples - 1;
+                curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+            }
+            return curve;
+        }
+    </script>
+</body>
+</html>
